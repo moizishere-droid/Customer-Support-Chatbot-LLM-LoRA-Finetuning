@@ -73,16 +73,38 @@ A **task-specific fine-tuned GPT-2 model** for generating customer support respo
 ### Loading the Model
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
-model = AutoModelForCausalLM.from_pretrained("./support-bot-gpt2")
-tokenizer = AutoTokenizer.from_pretrained("./support-bot-gpt2")
+# Load your fine-tuned model
+OUTPUT_DIR = "/content/support-bot-gpt2"  # Folder where your model was saved
 
-# Generate support response
-prompt = "Customer: How do I reset my password?"
-inputs = tokenizer(prompt, return_tensors="pt")
-outputs = model.generate(**inputs, max_length=100)
-response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-print(response)
+print("📥 Loading fine-tuned model for inference...")
+tokenizer = AutoTokenizer.from_pretrained(OUTPUT_DIR)
+model = AutoModelForCausalLM.from_pretrained(OUTPUT_DIR, device_map="auto", torch_dtype=torch.float16)
+model.eval()
+
+# Function for generating a response
+def generate_response(prompt, max_length=200, temperature=0.7, top_p=0.9):
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        output_ids = model.generate(
+            **inputs,
+            max_length=200,
+            temperature=0.8,  # slightly higher randomness
+            top_p=0.95,       # nucleus sampling
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+            repetition_penalty=1.2  # discourages repetition
+        )
+
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    # Remove prompt from output
+    return response[len(prompt):].strip()
+
+# Example usage
+prompt = "Answer this customer support question professionally and helpfully:\nHow do I return an item?"
+response = generate_response(prompt)
+print("🟢 Response:\n", response)
 ```
 
 ### Resuming Training
