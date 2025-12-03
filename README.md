@@ -1,13 +1,13 @@
 # 🤖 Support Bot GPT-2
-A **task-specific fine-tuned GPT-2 model** for generating customer support responses. This project demonstrates full LLM fine-tuning, efficient training configuration, and deployment using Hugging Face Transformers.
+A **LoRA fine-tuned GPT-2 model** for generating customer support responses. This project demonstrates parameter-efficient fine-tuning using LoRA (Low-Rank Adaptation), efficient training configuration, and deployment using Hugging Face Transformers and PEFT.
 
 ---
 
 ## 🚀 Highlights
-* **Full Fine-Tuning of GPT-2**: Adapted a pre-trained language model for customer support conversation generation.
-* **Task-Specific Training**: Fine-tuned on custom support dialogue dataset for contextually relevant responses.
-* **Optimized Training Pipeline**: Configured with mixed-precision (FP16) training and gradient accumulation for efficient GPU usage.
-* **Production-Ready Configuration**: Complete training arguments preserved for reproducibility and model deployment.
+* **LoRA Fine-Tuning of GPT-2**: Parameter-efficient adaptation using LoRA for customer support conversation generation.
+* **Parameter-Efficient Training**: Uses LoRA adapters instead of full model fine-tuning, reducing memory requirements by 90%.
+* **8-bit Quantization**: Model loaded in 8-bit precision for efficient inference on consumer GPUs.
+* **PEFT Integration**: Leverages Hugging Face PEFT library for adapter-based fine-tuning.
 * **GPU-Accelerated Training**: Leverages CUDA with fused AdamW optimizer for faster convergence.
 * **Checkpoint Management**: Automatic model saving every 1000 steps with checkpoint limits for storage efficiency.
 
@@ -38,7 +38,8 @@ A **task-specific fine-tuned GPT-2 model** for generating customer support respo
 * **[Transformers](https://huggingface.co/docs/transformers/index)** – Pre-trained models & fine-tuning
 * **[Datasets](https://huggingface.co/docs/datasets/)** – Loading and preprocessing datasets
 * **PyTorch** – Model training backend with CUDA support
-* **[Accelerate](https://huggingface.co/docs/accelerate/)** – Distributed training utilities
+* **[PEFT](https://github.com/huggingface/peft)** – Parameter-Efficient Fine-Tuning with LoRA
+* **[bitsandbytes](https://github.com/TimDettmers/bitsandbytes)** – 8-bit quantization
 
 ---
 
@@ -72,39 +73,69 @@ A **task-specific fine-tuned GPT-2 model** for generating customer support respo
 
 ### Loading the Model
 ```python
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
 
-# Load your fine-tuned model
-OUTPUT_DIR = "/content/support-bot-gpt2"  # Folder where your model was saved
+# Load fine-tuned model
+MODEL_PATH = "support-bot-model"  # path where you saved LoRA model
+BASE_MODEL = "gpt2"               # base model used for fine-tuning
 
-print("📥 Loading fine-tuned model for inference...")
-tokenizer = AutoTokenizer.from_pretrained(OUTPUT_DIR)
-model = AutoModelForCausalLM.from_pretrained(OUTPUT_DIR, device_map="auto", torch_dtype=torch.float16)
+print("📥 Loading model for inference...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL,
+    load_in_8bit=True,
+    device_map="auto",
+)
+model = PeftModel.from_pretrained(base_model, MODEL_PATH)
 model.eval()
 
-# Function for generating a response
-def generate_response(prompt, max_length=200, temperature=0.7, top_p=0.9):
+# Function to generate response
+def generate_response(question, max_new_tokens=150, temperature=0.7, top_p=0.9):
+    prompt = f"""Below is an instruction that describes a task, paired with an input. Write a response that appropriately completes the request.
+
+### Instruction:
+Answer this customer support question professionally and helpfully.
+
+### Input:
+{question}
+
+### Response:
+"""
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    
     with torch.no_grad():
-        output_ids = model.generate(
+        outputs = model.generate(
             **inputs,
-            max_length=200,
-            temperature=0.8,  # slightly higher randomness
-            top_p=0.95,       # nucleus sampling
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
             do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.2  # discourages repetition
         )
+    
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Extract only the response part
+    response = response.split("### Response:")[-1].strip()
+    return response
 
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    # Remove prompt from output
-    return response[len(prompt):].strip()
+# Test multiple questions
+test_questions = [
+    "How do I reset my password?",
+    "What's your warranty policy?",
+    "Can I get express shipping?",
+    "Do you have a mobile app?",
+]
 
-# Example usage
-prompt = "Answer this customer support question professionally and helpfully:\nHow do I return an item?"
-response = generate_response(prompt)
-print("🟢 Response:\n", response)
+print("\n" + "="*60)
+print("🤖 Customer Support Chatbot Responses")
+print("="*60 + "\n")
+
+for q in test_questions:
+    answer = generate_response(q)
+    print(f"❓ Question: {q}")
+    print(f"💬 Response: {answer}\n")
+    print("-" * 60 + "\n")
 ```
 
 ### Resuming Training
@@ -129,14 +160,16 @@ trainer.train(resume_from_checkpoint=True)
 
 ## 🌟 Key Learning & Focus
 By building this project, I focused on:
-* Understanding **full LLM fine-tuning** workflows for generative tasks
+* Understanding **LoRA fine-tuning** workflows for parameter-efficient adaptation
+* Implementing **PEFT (Parameter-Efficient Fine-Tuning)** techniques
+* Using **8-bit quantization** for memory-efficient inference
 * Configuring **optimal training parameters** for GPU efficiency
 * Implementing **mixed-precision training** for faster convergence
 * Using **gradient accumulation** to overcome memory constraints
-* Managing **checkpoints and model versioning** in production
-* Using Hugging Face **Trainer API** with custom training arguments
+* Managing **adapter checkpoints** for modular deployment
+* Using Hugging Face **Trainer API** with PEFT integration
 * **Reproducibility** through comprehensive configuration preservation
-* Building **conversational AI systems** for practical applications
+* Building **conversational AI systems** with instruction-following format
 
 ---
 
@@ -186,7 +219,3 @@ This project includes:
 * Support ticket handling
 * FAQ automation
 * Conversational AI assistants
-
----
-
-*Training session: December 3, 2025*
